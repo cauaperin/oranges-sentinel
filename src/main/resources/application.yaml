@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: orangesentinel
+  profiles:
+    default: dev
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/orangesentinel}
+    username: ${DB_USER:orangesentinel}
+    password: ${DB_PASSWORD:orangesentinel}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${PORT:8080}
+  error:
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+app:
+  jwt:
+    # Mínimo de 32 caracteres (HS256). Em produção, defina JWT_SECRET.
+    secret: ${JWT_SECRET:}
+    expiracao: ${JWT_EXPIRACAO:PT8H}
+  admin:
+    email: ${ADMIN_EMAIL:admin@orangesentinel.dev}
+    # Se vazio, nenhum admin inicial é criado.
+    senha: ${ADMIN_PASSWORD:}
+  cors:
+    origens: ${CORS_ORIGINS:}
+
+antifraude:
+  agendamento-habilitado: ${ANTIFRAUDE_AGENDAMENTO:true}
+  cron: ${ANTIFRAUDE_CRON:0 */15 * * * *}
+  grafo-max-nos-ego: 300
