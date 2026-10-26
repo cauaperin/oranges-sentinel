@@ -35,7 +35,5 @@ build/
 ### Ambiente ###
 .env
 
-.claude/settings.local.json
-
 ### Claude Code (configuração local) ###
 .claude/settings.local.json
