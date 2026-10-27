@@ -37,3 +37,4 @@ build/
 
 ### Claude Code (configuração local) ###
 .claude/settings.local.json
+CLAUDE.md
