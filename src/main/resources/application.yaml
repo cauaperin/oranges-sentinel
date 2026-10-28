@@ -44,17 +44,16 @@ springdoc:
 
 app:
   jwt:
-    # Mínimo de 32 caracteres (HS256). Em produção, defina JWT_SECRET.
-    secret: ${JWT_SECRET:}
-    expiracao: ${JWT_EXPIRACAO:PT8H}
-  admin:
-    email: ${ADMIN_EMAIL:admin@orangesentinel.dev}
-    # Se vazio, nenhum admin inicial é criado.
-    senha: ${ADMIN_PASSWORD:}
+    # Chaves públicas do serviço auth (o banco só valida tokens, não emite)
+    jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+    issuer: ${JWT_ISSUER:orangesentinel-auth}
   cors:
     origens: ${CORS_ORIGINS:}
-
-antifraude:
-  agendamento-habilitado: ${ANTIFRAUDE_AGENDAMENTO:true}
-  cron: ${ANTIFRAUDE_CRON:0 */15 * * * *}
-  grafo-max-nos-ego: 300
+  internal:
+    # Chave compartilhada nas chamadas entre serviços (header X-Internal-Key). Vazia = API interna fechada.
+    chave: ${INTERNAL_KEY:}
+  motor:
+    # URL base do motor antifraude; vazia desativa a avaliação em tempo real (Pix aprovado sem análise)
+    url: ${MOTOR_URL:}
+    # Se o motor não responder nesse prazo, o Pix segue sem análise (fail-open)
+    timeout: ${MOTOR_TIMEOUT:PT3S}

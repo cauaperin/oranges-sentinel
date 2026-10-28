@@ -1,7 +1,9 @@
 package com.api.orangesentinel.service;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -11,6 +13,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.api.orangesentinel.client.MotorClient;
+import com.api.orangesentinel.client.MotorDtos.Acao;
+import com.api.orangesentinel.client.MotorDtos.AvaliacaoPixRequest;
+import com.api.orangesentinel.client.MotorDtos.AvaliacaoPixResponse;
+import com.api.orangesentinel.client.MotorDtos.ContaPix;
+import com.api.orangesentinel.client.MotorDtos.Recebimento;
 import com.api.orangesentinel.dto.TransacaoDtos.MovimentacaoRequest;
 import com.api.orangesentinel.dto.TransacaoDtos.PixRequest;
 import com.api.orangesentinel.dto.TransacaoDtos.TransacaoResponse;
@@ -19,23 +27,23 @@ import com.api.orangesentinel.exception.RecursoNaoEncontradoException;
 import com.api.orangesentinel.exception.RegraNegocioException;
 import com.api.orangesentinel.model.Conta;
 import com.api.orangesentinel.model.Transacao;
-import com.api.orangesentinel.model.enums.OrigemAlerta;
 import com.api.orangesentinel.model.enums.StatusConta;
 import com.api.orangesentinel.model.enums.StatusTransacao;
 import com.api.orangesentinel.model.enums.TipoTransacao;
 import com.api.orangesentinel.repository.ContaRepository;
 import com.api.orangesentinel.repository.TransacaoRepository;
-import com.api.orangesentinel.service.antifraude.RealTimeRiskGuard;
-import com.api.orangesentinel.service.antifraude.RealTimeRiskGuard.Decisao;
 
 /**
- * Movimentações financeiras do banco simulado: Pix, depósito e saque. Todo Pix passa pelo
- * {@link RealTimeRiskGuard} antes de ser efetivado.
+ * Movimentações financeiras do banco simulado: Pix, depósito e saque. Todo Pix é avaliado pelo motor antifraude
+ * antes de ser efetivado (ver {@link MotorClient}).
  */
 @Service
 public class TransferenciaService {
 
 	private static final Logger log = LoggerFactory.getLogger(TransferenciaService.class);
+
+	/** Quanto do histórico de recebimentos da origem é enviado ao motor (o parâmetro padrão de repasse rápido é 60 min). */
+	private static final Duration JANELA_RECEBIMENTOS = Duration.ofMinutes(60);
 
 	private final TransacaoRepository repository;
 
@@ -43,17 +51,14 @@ public class TransferenciaService {
 
 	private final ChavePixService chavePixService;
 
-	private final RealTimeRiskGuard guard;
-
-	private final AlertaService alertaService;
+	private final MotorClient motorClient;
 
 	public TransferenciaService(TransacaoRepository repository, ContaRepository contaRepository,
-			ChavePixService chavePixService, RealTimeRiskGuard guard, AlertaService alertaService) {
+			ChavePixService chavePixService, MotorClient motorClient) {
 		this.repository = repository;
 		this.contaRepository = contaRepository;
 		this.chavePixService = chavePixService;
-		this.guard = guard;
-		this.alertaService = alertaService;
+		this.motorClient = motorClient;
 	}
 
 	@Transactional
@@ -62,7 +67,7 @@ public class TransferenciaService {
 		var existente = repository.findByIdempotencyKey(chave);
 		if (existente.isPresent()) {
 			Transacao t = existente.get();
-			if (t.getContaOrigem() == null || !t.getContaOrigem().getTitular().getId().equals(usuarioId)) {
+			if (t.getContaOrigem() == null || !t.getContaOrigem().getUsuarioId().equals(usuarioId)) {
 				throw new ConflitoException("Idempotency-Key já utilizada em outra operação");
 			}
 			return TransacaoResponse.of(t, t.getContaOrigem().getId());
@@ -96,7 +101,7 @@ public class TransferenciaService {
 		}
 
 		Instant agora = Instant.now();
-		Decisao decisao = guard.avaliar(origem, destino, req.valor(), agora);
+		AvaliacaoPixResponse decisao = motorClient.avaliarPix(avaliacao(origem, destino, req.valor(), agora));
 		StatusTransacao status = switch (decisao.acao()) {
 			case RECUSAR -> StatusTransacao.RECUSADA;
 			case RETER -> {
@@ -112,15 +117,12 @@ public class TransferenciaService {
 
 		Transacao t = new Transacao(origem, destino, req.valor(), TipoTransacao.PIX, status, req.descricao(), chave,
 				agora);
-		if (!decisao.motivos().isEmpty()) {
+		if (decisao.motivos() != null && !decisao.motivos().isEmpty()) {
 			t.setMotivo(decisao.motivoTexto());
 		}
 		repository.save(t);
-
-		if (decisao.contaAlertada() != null) {
-			alertaService.registrar(decisao.contaAlertada(), OrigemAlerta.TEMPO_REAL, decisao.score(),
-					decisao.motivos(), null);
-			log.info("Alerta em tempo real para conta {}: {}", decisao.contaAlertada().getId(), decisao.motivoTexto());
+		if (decisao.acao() != Acao.APROVAR) {
+			log.info("Pix {} avaliado pelo motor como {}: {}", t.getId(), decisao.acao(), decisao.motivoTexto());
 		}
 		return TransacaoResponse.of(t, origem.getId());
 	}
@@ -157,6 +159,20 @@ public class TransferenciaService {
 			.orElseThrow(() -> new RecursoNaoEncontradoException("Conta", contaId));
 		ContaService.verificarTitular(conta, usuarioId);
 		return repository.extrato(contaId, de, ate, pageable).map(t -> TransacaoResponse.of(t, contaId));
+	}
+
+	/** Fatos que o banco possui e o motor precisa para decidir: status e risco das contas e recebimentos recentes. */
+	private AvaliacaoPixRequest avaliacao(Conta origem, Conta destino, BigDecimal valor, Instant agora) {
+		List<Recebimento> recebimentos = repository
+			.recebimentosRecentes(origem.getId(), agora.minus(JANELA_RECEBIMENTOS))
+			.stream()
+			.map(r -> new Recebimento(r.getRemetenteId(), r.getValor(), r.getEm()))
+			.toList();
+		return new AvaliacaoPixRequest(contaPix(origem), contaPix(destino), valor, agora, recebimentos);
+	}
+
+	private static ContaPix contaPix(Conta c) {
+		return new ContaPix(c.getId(), c.getStatus(), c.getScoreRisco(), c.getClassificacaoRisco());
 	}
 
 	private Conta travar(Long contaId) {

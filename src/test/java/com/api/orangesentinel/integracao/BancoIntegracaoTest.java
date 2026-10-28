@@ -1,5 +1,6 @@
 package com.api.orangesentinel.integracao;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -10,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * Fluxo do banco simulado: cadastro, depósito, chave Pix, transferência, extrato, idempotência e autorização.
+ * Fluxo do banco simulado: conta inicial, depósito, chave Pix, transferência, extrato, idempotência e autorização.
  */
 class BancoIntegracaoTest extends IntegracaoTestBase {
 
@@ -49,6 +50,10 @@ class BancoIntegracaoTest extends IntegracaoTestBase {
 		mvc.perform(autenticado(get("/api/contas/{id}/extrato", ana.contaId()), ana.token()))
 			.andExpect(jsonPath("$.totalElements").value(2))
 			.andExpect(jsonPath("$.content[0].tipo").value("PIX"));
+
+		// A chave Pix do tipo CPF usa o CPF copiado do titular na abertura da conta
+		mvc.perform(json(post("/api/contas/{id}/chaves-pix", bruno.contaId()), bruno.token(), """
+				{"tipo": "CPF"}""")).andExpect(status().isCreated());
 	}
 
 	@Test
@@ -78,27 +83,62 @@ class BancoIntegracaoTest extends IntegracaoTestBase {
 	}
 
 	@Test
-	void rotasProtegidasPorPerfil() throws Exception {
-		Cliente cliente = registrarCliente("Gabriela");
+	void clienteAbreSegundaContaComOsDadosDoToken() throws Exception {
+		Cliente gabriela = registrarCliente("Gabriela");
 
+		mvc.perform(json(post("/api/contas"), gabriela.token(), """
+				{"tipo": "POUPANCA"}""")).andExpect(status().isCreated()).andExpect(jsonPath("$.tipo").value("POUPANCA"));
+		mvc.perform(autenticado(get("/api/contas"), gabriela.token())).andExpect(jsonPath("$.length()").value(2));
+	}
+
+	@Test
+	void rotasExigemTokenValido() throws Exception {
 		mvc.perform(get("/api/contas")).andExpect(status().isUnauthorized());
-		mvc.perform(autenticado(get("/api/fraude/contas"), cliente.token())).andExpect(status().isForbidden());
-		mvc.perform(autenticado(get("/api/admin/usuarios"), cliente.token())).andExpect(status().isForbidden());
-
-		String admin = login(ADMIN_EMAIL, ADMIN_SENHA);
-		mvc.perform(autenticado(get("/api/fraude/contas"), admin)).andExpect(status().isOk());
-		mvc.perform(autenticado(get("/api/admin/parametros-risco"), admin))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.limiarLaranja").value(80));
+		mvc.perform(autenticado(get("/api/contas"), "token.invalido.aqui")).andExpect(status().isUnauthorized());
+		// Rotas que não existem mais neste serviço (auth e antifraude moraram em outros)
+		Cliente helena = registrarCliente("Helena");
+		mvc.perform(autenticado(get("/api/fraude/contas"), helena.token())).andExpect(status().isNotFound());
 	}
 
 	@Test
 	void validacaoDeEntrada() throws Exception {
-		mvc.perform(post("/api/auth/registro").contentType("application/json").content("""
-				{"nome":"","cpf":"123","email":"invalido","senha":"1"}"""))
+		Cliente igor = registrarCliente("Igor");
+		mvc.perform(json(post("/api/pix"), igor.token(), """
+				{"contaOrigemId": %d, "chaveDestino": "", "valor": -5}""".formatted(igor.contaId())))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.erros.cpf").exists())
-			.andExpect(jsonPath("$.erros.email").exists());
+			.andExpect(jsonPath("$.erros.chaveDestino").exists())
+			.andExpect(jsonPath("$.erros.valor").exists());
+	}
+
+	@Test
+	void pixEnviaAoMotorOsRecebimentosRecentesDaOrigem() throws Exception {
+		Cliente joao = registrarCliente("Joao");
+		Cliente karla = registrarCliente("Karla");
+		Cliente luis = registrarCliente("Luis");
+		for (Cliente c : new Cliente[] { joao, karla, luis }) {
+			mvc.perform(json(post("/api/contas/{id}/chaves-pix", c.contaId()), c.token(), """
+					{"tipo": "EMAIL", "valor": "%s"}""".formatted(c.email()))).andExpect(status().isCreated());
+		}
+		mvc.perform(json(post("/api/contas/{id}/deposito", joao.contaId()), joao.token(), """
+				{"valor": 500.00}""")).andExpect(status().isCreated());
+		mvc.perform(json(post("/api/pix"), joao.token(), """
+				{"contaOrigemId": %d, "chaveDestino": "%s", "valor": 200.00}""".formatted(joao.contaId(), karla.email())))
+			.andExpect(status().isCreated());
+
+		// Karla acabou de receber de João e agora repassa a Luis: o motor recebe esse recebimento no pedido
+		motor.pedidos.clear();
+		mvc.perform(json(post("/api/pix"), karla.token(), """
+				{"contaOrigemId": %d, "chaveDestino": "%s", "valor": 150.00}""".formatted(karla.contaId(), luis.email())))
+			.andExpect(status().isCreated());
+
+		assertThat(motor.pedidos).hasSize(1);
+		var pedido = motor.pedidos.getFirst();
+		assertThat(pedido.origem().id()).isEqualTo(karla.contaId());
+		assertThat(pedido.destino().id()).isEqualTo(luis.contaId());
+		assertThat(pedido.recebimentosOrigem()).singleElement().satisfies(r -> {
+			assertThat(r.remetenteId()).isEqualTo(joao.contaId());
+			assertThat(r.valor()).isEqualByComparingTo("200.00");
+		});
 	}
 
 }

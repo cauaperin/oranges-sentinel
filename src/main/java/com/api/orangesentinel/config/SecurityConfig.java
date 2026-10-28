@@ -1,88 +1,67 @@
 package com.api.orangesentinel.config;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
-
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
-import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import com.api.orangesentinel.security.InternalKeyFilter;
 
-import com.api.orangesentinel.security.TokenService;
-
+/**
+ * O banco não emite tokens: valida os JWT do serviço auth com a chave pública publicada em JWKS.
+ */
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
 
+	private static final String CLAIM_ROLES = "roles";
+
 	@Bean
-	SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+	SecurityFilterChain securityFilterChain(HttpSecurity http, @Value("${app.internal.chave:}") String chaveInterna)
+			throws Exception {
 		http.csrf(AbstractHttpConfigurer::disable)
 			.cors(Customizer.withDefaults())
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.authorizeHttpRequests(auth -> auth
-				.requestMatchers("/api/auth/**", "/error").permitAll()
+			.addFilterBefore(new InternalKeyFilter(chaveInterna), BearerTokenAuthenticationFilter.class)
+			.authorizeHttpRequests(auth -> auth.requestMatchers("/error").permitAll()
 				.requestMatchers("/actuator/health/**", "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**")
 				.permitAll()
-				.requestMatchers("/api/admin/**").hasRole("ADMIN")
-				.requestMatchers("/api/fraude/**").hasAnyRole("ANALISTA", "ADMIN")
+				// Autenticado pelo InternalKeyFilter, não por JWT de usuário
+				.requestMatchers("/internal/**").permitAll()
 				.requestMatchers("/api/**").authenticated()
-				// Frontend Angular (servido estaticamente pelo próprio Spring Boot)
-				.requestMatchers(HttpMethod.GET, "/**").permitAll()
 				.anyRequest().denyAll())
 			.oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
 		return http.build();
 	}
 
 	@Bean
-	PasswordEncoder passwordEncoder() {
-		return new BCryptPasswordEncoder();
-	}
-
-	@Bean
-	SecretKey jwtSecretKey(JwtProperties properties) {
-		return new SecretKeySpec(properties.secret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-	}
-
-	@Bean
-	JwtEncoder jwtEncoder(SecretKey jwtSecretKey) {
-		return new NimbusJwtEncoder(new ImmutableSecret<>(jwtSecretKey));
-	}
-
-	@Bean
-	JwtDecoder jwtDecoder(SecretKey jwtSecretKey) {
-		NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey).macAlgorithm(MacAlgorithm.HS256).build();
-		decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(TokenService.ISSUER));
+	JwtDecoder jwtDecoder(@Value("${app.jwt.jwk-set-uri}") String jwkSetUri, @Value("${app.jwt.issuer}") String issuer) {
+		NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).jwsAlgorithm(SignatureAlgorithm.RS256).build();
+		decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(issuer));
 		return decoder;
 	}
 
 	private JwtAuthenticationConverter jwtAuthenticationConverter() {
 		JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
-		authorities.setAuthoritiesClaimName(TokenService.CLAIM_ROLES);
+		authorities.setAuthoritiesClaimName(CLAIM_ROLES);
 		authorities.setAuthorityPrefix("ROLE_");
 		JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
 		converter.setJwtGrantedAuthoritiesConverter(authorities);

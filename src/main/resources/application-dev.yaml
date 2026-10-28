@@ -1,14 +1,10 @@
 app:
-  jwt:
-    secret: ${JWT_SECRET:dev-only-secret-orangesentinel-troque-em-producao-0123456789}
-  admin:
-    senha: ${ADMIN_PASSWORD:admin123}
   cors:
-    origens: ${CORS_ORIGINS:http://localhost:4200}
-
-antifraude:
-  # Em dev a análise é disparada manualmente (POST /api/fraude/analises) por padrão.
-  agendamento-habilitado: ${ANTIFRAUDE_AGENDAMENTO:false}
+    origens: ${CORS_ORIGINS:http://localhost:5173}
+  internal:
+    chave: ${INTERNAL_KEY:dev-internal-key}
+  motor:
+    url: ${MOTOR_URL:http://localhost:8082}
 
 logging:
   level:
