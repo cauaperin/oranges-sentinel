@@ -7,12 +7,9 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
@@ -32,9 +29,15 @@ public class Conta {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	@ManyToOne(fetch = FetchType.LAZY, optional = false)
-	@JoinColumn(name = "usuario_id")
-	private Usuario titular;
+	/** Dono da conta no serviço auth (aqui só o id) e a cópia dos dados do titular tirada na abertura. */
+	@Column(name = "usuario_id", nullable = false)
+	private Long usuarioId;
+
+	@Column(name = "titular_nome", nullable = false, length = 120)
+	private String titularNome;
+
+	@Column(name = "titular_cpf", nullable = false, length = 11)
+	private String titularCpf;
 
 	@Column(nullable = false, length = 4)
 	private String agencia = "0001";
@@ -73,8 +76,10 @@ public class Conta {
 	protected Conta() {
 	}
 
-	public Conta(Usuario titular, String numero, TipoConta tipo) {
-		this.titular = titular;
+	public Conta(Long usuarioId, String titularNome, String titularCpf, String numero, TipoConta tipo) {
+		this.usuarioId = usuarioId;
+		this.titularNome = titularNome;
+		this.titularCpf = titularCpf;
 		this.numero = numero;
 		this.tipo = tipo;
 		this.criadaEm = Instant.now();
@@ -101,8 +106,16 @@ public class Conta {
 		return id;
 	}
 
-	public Usuario getTitular() {
-		return titular;
+	public Long getUsuarioId() {
+		return usuarioId;
+	}
+
+	public String getTitularNome() {
+		return titularNome;
+	}
+
+	public String getTitularCpf() {
+		return titularCpf;
 	}
 
 	public String getAgencia() {

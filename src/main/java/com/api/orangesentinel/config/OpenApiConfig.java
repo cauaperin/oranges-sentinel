@@ -11,7 +11,7 @@ import io.swagger.v3.oas.annotations.security.SecurityScheme;
 @Configuration
 @OpenAPIDefinition(
 		info = @Info(title = "OrangeSentinel API", version = "v1",
-				description = "Banco digital simulado com motor antifraude baseado em grafos para detecção de contas laranja"),
+				description = "Serviço banco do OrangeSentinel: contas, chaves Pix, Pix, depósito, saque e extrato. Tokens emitidos pelo serviço auth"),
 		security = @SecurityRequirement(name = "bearer"))
 @SecurityScheme(name = "bearer", type = SecuritySchemeType.HTTP, scheme = "bearer", bearerFormat = "JWT")
 public class OpenApiConfig {

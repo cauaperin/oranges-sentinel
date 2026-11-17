@@ -11,10 +11,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.api.orangesentinel.dto.ArestaPix;
+import com.api.orangesentinel.dto.SaqueRegistrado;
 import com.api.orangesentinel.model.Transacao;
 import com.api.orangesentinel.model.enums.StatusTransacao;
-import com.api.orangesentinel.service.antifraude.grafo.ArestaTransacao;
-import com.api.orangesentinel.service.antifraude.grafo.MovimentoExterno;
+import com.api.orangesentinel.dto.ArestaPix;
+import com.api.orangesentinel.dto.SaqueRegistrado;
 
 public interface TransacaoRepository extends JpaRepository<Transacao, Long> {
 
@@ -22,8 +24,8 @@ public interface TransacaoRepository extends JpaRepository<Transacao, Long> {
 
 	@Query(value = """
 			select t from Transacao t
-			left join fetch t.contaOrigem o left join fetch o.titular
-			left join fetch t.contaDestino d left join fetch d.titular
+			left join fetch t.contaOrigem o
+			left join fetch t.contaDestino d
 			where (o.id = :contaId or d.id = :contaId)
 			  and t.criadaEm >= :de and t.criadaEm < :ate
 			""", countQuery = """
@@ -36,43 +38,45 @@ public interface TransacaoRepository extends JpaRepository<Transacao, Long> {
 
 	/** Arestas do grafo: Pix concluídos dentro da janela de análise. */
 	@Query("""
-			select new com.api.orangesentinel.service.antifraude.grafo.ArestaTransacao(
+			select new com.api.orangesentinel.dto.ArestaPix(
 			    t.id, t.contaOrigem.id, t.contaDestino.id, t.valor, t.criadaEm)
 			from Transacao t
 			where t.tipo = com.api.orangesentinel.model.enums.TipoTransacao.PIX
 			  and t.status = com.api.orangesentinel.model.enums.StatusTransacao.CONCLUIDA
 			  and t.criadaEm >= :desde
 			""")
-	List<ArestaTransacao> arestasPix(@Param("desde") Instant desde);
+	List<ArestaPix> arestasPix(@Param("desde") Instant desde);
 
 	@Query("""
-			select new com.api.orangesentinel.service.antifraude.grafo.MovimentoExterno(
+			select new com.api.orangesentinel.dto.SaqueRegistrado(
 			    t.contaOrigem.id, t.valor, t.criadaEm)
 			from Transacao t
 			where t.tipo = com.api.orangesentinel.model.enums.TipoTransacao.SAQUE
 			  and t.status = com.api.orangesentinel.model.enums.StatusTransacao.CONCLUIDA
 			  and t.criadaEm >= :desde
 			""")
-	List<MovimentoExterno> saques(@Param("desde") Instant desde);
+	List<SaqueRegistrado> saques(@Param("desde") Instant desde);
 
-	/** Pix recebidos recentemente por uma conta (checagem em tempo real). */
+	/** Pix concluídos recebidos recentemente por uma conta (enviados ao motor na avaliação em tempo real). */
 	@Query("""
-			select count(distinct t.contaOrigem.id) as remetentes, coalesce(sum(t.valor), 0) as total
+			select t.contaOrigem.id as remetenteId, t.valor as valor, t.criadaEm as em
 			from Transacao t
 			where t.contaDestino.id = :contaId
 			  and t.tipo = com.api.orangesentinel.model.enums.TipoTransacao.PIX
 			  and t.status = com.api.orangesentinel.model.enums.StatusTransacao.CONCLUIDA
 			  and t.criadaEm >= :desde
 			""")
-	RecebimentosRecentes recebimentosRecentes(@Param("contaId") Long contaId, @Param("desde") Instant desde);
+	List<RecebimentoRecente> recebimentosRecentes(@Param("contaId") Long contaId, @Param("desde") Instant desde);
 
 	List<Transacao> findByContaDestinoIdAndStatus(Long contaDestinoId, StatusTransacao status);
 
-	interface RecebimentosRecentes {
+	interface RecebimentoRecente {
 
-		long getRemetentes();
+		Long getRemetenteId();
 
-		BigDecimal getTotal();
+		BigDecimal getValor();
+
+		Instant getEm();
 
 	}
 

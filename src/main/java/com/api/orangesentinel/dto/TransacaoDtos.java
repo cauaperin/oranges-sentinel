@@ -34,7 +34,7 @@ public final class TransacaoDtos {
 
 		public static ContaResumo of(Conta c) {
 			return c == null ? null
-					: new ContaResumo(c.getId(), c.getAgencia(), c.getNumero(), c.getTitular().getNome());
+					: new ContaResumo(c.getId(), c.getAgencia(), c.getNumero(), c.getTitularNome());
 		}
 
 	}

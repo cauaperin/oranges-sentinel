@@ -41,7 +41,7 @@ public class ContaController {
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
 	public ContaResponse abrir(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody AbrirContaRequest req) {
-		return ContaResponse.of(service.abrir(UsuarioLogado.id(jwt), req.tipo()));
+		return ContaResponse.of(service.abrir(UsuarioLogado.id(jwt), UsuarioLogado.nome(jwt), UsuarioLogado.cpf(jwt), req.tipo()));
 	}
 
 	@GetMapping("/{id}")

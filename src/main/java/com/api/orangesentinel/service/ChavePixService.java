@@ -79,7 +79,7 @@ public class ChavePixService {
 
 	private static String normalizar(TipoChave tipo, String valor, Conta conta) {
 		return switch (tipo) {
-			case CPF -> conta.getTitular().getCpf();
+			case CPF -> conta.getTitularCpf();
 			case ALEATORIA -> UUID.randomUUID().toString();
 			case EMAIL -> {
 				String email = obrigatorio(valor).toLowerCase();
