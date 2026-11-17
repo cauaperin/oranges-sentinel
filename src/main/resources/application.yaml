@@ -9,17 +9,22 @@ spring:
     password: ${DB_PASSWORD:orangesentinel}
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:5}
+      # Cada serviço usa um schema próprio no mesmo PostgreSQL
+      schema: ${DB_SCHEMA:banco}
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
     properties:
       hibernate:
+        default_schema: ${DB_SCHEMA:banco}
         jdbc:
           time_zone: UTC
   flyway:
     enabled: true
     locations: classpath:db/migration
+    schemas: ${DB_SCHEMA:banco}
+    default-schema: ${DB_SCHEMA:banco}
 
 server:
   port: ${PORT:8080}

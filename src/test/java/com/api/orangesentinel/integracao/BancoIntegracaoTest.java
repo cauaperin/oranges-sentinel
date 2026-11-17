@@ -6,8 +6,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 
+import com.api.orangesentinel.client.MotorDtos.Acao;
+import com.api.orangesentinel.client.MotorDtos.AvaliacaoPixResponse;
 import com.jayway.jsonpath.JsonPath;
 
 /**
@@ -98,6 +102,44 @@ class BancoIntegracaoTest extends IntegracaoTestBase {
 		// Rotas que não existem mais neste serviço (auth e antifraude moraram em outros)
 		Cliente helena = registrarCliente("Helena");
 		mvc.perform(autenticado(get("/api/fraude/contas"), helena.token())).andExpect(status().isNotFound());
+	}
+
+	@Test
+	void analistaEAdminNaoUsamRotasDeCorrentista() throws Exception {
+		for (String role : new String[] { "ANALISTA", "ADMIN" }) {
+			String token = token(9000, "Equipe", cpfAleatorio(), role);
+			mvc.perform(autenticado(get("/api/contas"), token)).andExpect(status().isForbidden());
+			mvc.perform(json(post("/api/contas"), token, """
+					{"tipo": "CORRENTE"}""")).andExpect(status().isForbidden());
+			mvc.perform(json(post("/api/pix"), token, """
+					{"contaOrigemId": 1, "chaveDestino": "x@y.dev", "valor": 10.00}""")).andExpect(status().isForbidden());
+		}
+	}
+
+	@Test
+	void respostaDoPixNaoExpoeAAnaliseDoMotor() throws Exception {
+		Cliente maria = registrarCliente("Maria");
+		Cliente nina = registrarCliente("Nina");
+		mvc.perform(json(post("/api/contas/{id}/chaves-pix", nina.contaId()), nina.token(), """
+				{"tipo": "EMAIL", "valor": "%s"}""".formatted(nina.email()))).andExpect(status().isCreated());
+		mvc.perform(json(post("/api/contas/{id}/deposito", maria.contaId()), maria.token(), """
+				{"valor": 500.00}""")).andExpect(status().isCreated());
+		String pix = """
+				{"contaOrigemId": %d, "chaveDestino": "%s", "valor": 50.00}""".formatted(maria.contaId(), nina.email());
+
+		// Retido: o cliente vê uma mensagem neutra, não o score da conta de destino
+		motor.regra = req -> new AvaliacaoPixResponse(Acao.RETER, nina.contaId(), 97,
+				List.of("Tempo real: Pix para conta sinalizada como possível laranja (score 97) foi retido"));
+		mvc.perform(json(post("/api/pix"), maria.token(), pix))
+			.andExpect(jsonPath("$.status").value("RETIDA"))
+			.andExpect(jsonPath("$.motivo").value("Pix retido pela proteção antifraude para análise"));
+
+		// Aprovado com alerta sobre a própria origem: nada é dito ao cliente (não avisa uma possível laranja)
+		motor.regra = req -> new AvaliacaoPixResponse(Acao.APROVAR_COM_ALERTA, maria.contaId(), null,
+				List.of("Tempo real: recebeu R$ 900.00 de 3 contas nos últimos 60 min e repassou R$ 50.00 em seguida"));
+		mvc.perform(json(post("/api/pix"), maria.token(), pix))
+			.andExpect(jsonPath("$.status").value("CONCLUIDA"))
+			.andExpect(jsonPath("$.motivo").doesNotExist());
 	}
 
 	@Test

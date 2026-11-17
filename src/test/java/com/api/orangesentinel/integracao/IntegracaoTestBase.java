@@ -121,6 +121,10 @@ abstract class IntegracaoTestBase {
 
 	/** Token no formato do serviço auth (RS256, claims sub/nome/cpf/roles/iss). */
 	static String token(long usuarioId, String nome, String cpf) {
+		return token(usuarioId, nome, cpf, "CLIENTE");
+	}
+
+	static String token(long usuarioId, String nome, String cpf, String role) {
 		Instant agora = Instant.now();
 		JwtClaimsSet claims = JwtClaimsSet.builder()
 			.issuer("orangesentinel-auth")
@@ -129,7 +133,7 @@ abstract class IntegracaoTestBase {
 			.expiresAt(agora.plusSeconds(600))
 			.claim("nome", nome)
 			.claim("cpf", cpf)
-			.claim("roles", List.of("CLIENTE"))
+			.claim("roles", List.of(role))
 			.build();
 		JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).keyId(CHAVE.getKeyID()).build();
 		return new NimbusJwtEncoder(new ImmutableJWKSet<>(new JWKSet(CHAVE)))

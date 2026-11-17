@@ -117,9 +117,7 @@ public class TransferenciaService {
 
 		Transacao t = new Transacao(origem, destino, req.valor(), TipoTransacao.PIX, status, req.descricao(), chave,
 				agora);
-		if (decisao.motivos() != null && !decisao.motivos().isEmpty()) {
-			t.setMotivo(decisao.motivoTexto());
-		}
+		t.setMotivo(motivoParaCliente(decisao));
 		repository.save(t);
 		if (decisao.acao() != Acao.APROVAR) {
 			log.info("Pix {} avaliado pelo motor como {}: {}", t.getId(), decisao.acao(), decisao.motivoTexto());
@@ -169,6 +167,21 @@ public class TransferenciaService {
 			.map(r -> new Recebimento(r.getRemetenteId(), r.getValor(), r.getEm()))
 			.toList();
 		return new AvaliacaoPixRequest(contaPix(origem), contaPix(destino), valor, agora, recebimentos);
+	}
+
+	/**
+	 * Motivo gravado na transação, que o cliente vê. O motor explica a decisão para o analista (score do destino,
+	 * padrão de repasse da origem); isso fica no alerta do motor e no log, nunca na resposta ao cliente, para não expor
+	 * a análise de terceiros nem avisar uma possível conta laranja de que está sendo observada.
+	 */
+	static String motivoParaCliente(AvaliacaoPixResponse decisao) {
+		return switch (decisao.acao()) {
+			case APROVAR, APROVAR_COM_ALERTA -> null;
+			case RETER -> "Pix retido pela proteção antifraude para análise";
+			// Recusas falam do status das contas (destino bloqueado, origem em análise), sem dados da análise
+			case RECUSAR -> decisao.motivoTexto().isBlank() ? "Pix recusado pela proteção antifraude"
+					: decisao.motivoTexto();
+		};
 	}
 
 	private static ContaPix contaPix(Conta c) {

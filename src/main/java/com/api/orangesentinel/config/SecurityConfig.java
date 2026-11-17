@@ -46,7 +46,8 @@ public class SecurityConfig {
 				.permitAll()
 				// Autenticado pelo InternalKeyFilter, não por JWT de usuário
 				.requestMatchers("/internal/**").permitAll()
-				.requestMatchers("/api/**").authenticated()
+				// Rotas de correntista: analista e admin não têm conta e operam pelo motor
+				.requestMatchers("/api/**").hasRole("CLIENTE")
 				.anyRequest().denyAll())
 			.oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
 		return http.build();

@@ -80,17 +80,19 @@ Cadastro e login ficam no auth; ranking de risco, alertas e simulador ficam no m
 
 ## Executando localmente
 
-Pré-requisitos: JDK 27 e Docker. Suba os três serviços (cada um no seu repositório) com a mesma `INTERNAL_KEY`
-(em dev o padrão é `dev-internal-key`):
+Pré-requisitos: JDK 27 e Docker. O `compose.yaml` deste repositório sobe **um único PostgreSQL** em `localhost:5432`,
+compartilhado pelos três serviços, cada um no seu schema, como no Supabase em produção. O Flyway de cada serviço cria
+o próprio schema na primeira inicialização. Suba os três serviços (cada um no seu repositório) com a mesma
+`INTERNAL_KEY` (em dev o padrão é `dev-internal-key`):
 
-| Serviço | Porta | Postgres do compose |
+| Serviço | Porta | Schema |
 |---|---|---|
-| banco | 8080 | 5432 |
-| auth | 8081 | 5433 |
-| motor | 8082 | 5434 |
+| banco | 8080 | `banco` |
+| auth | 8081 | `auth` |
+| motor | 8082 | `motor` |
 
 ```bash
-docker compose up -d
+docker compose up -d     # PostgreSQL compartilhado em localhost:5432 (rode só neste repositório)
 ./mvnw spring-boot:run   # perfil dev, Swagger em :8080/swagger-ui.html
 ```
 
@@ -116,9 +118,9 @@ Docker não estiver rodando**. O motor é falso e os tokens são assinados por u
    `INTERNAL_KEY` e `MOTOR_URL`). O Render define `PORT` automaticamente.
 4. O Flyway cria o schema na primeira inicialização. Use `/actuator/health` como health check.
 
-> **Banco que já tinha a versão monolítica:** a migration `V3__separa_servicos.sql` remove `usuario` e as tabelas do
-> antifraude. Como os ids de usuário agora são gerados pelo auth, as contas antigas apontariam para usuários que não
-> existem mais. Recomece com o schema `public` limpo (`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`).
+> **Banco que já tinha a versão monolítica:** o serviço usa o schema `banco` (variável `DB_SCHEMA`), então as tabelas
+> antigas do monólito no schema `public` não são tocadas e o banco começa vazio no schema novo. Os ids de usuário agora
+> são gerados pelo auth, por isso não faz sentido reaproveitar as contas antigas.
 
 ## Limitações conhecidas
 
