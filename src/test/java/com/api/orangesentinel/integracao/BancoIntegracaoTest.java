@@ -54,6 +54,23 @@ class BancoIntegracaoTest extends IntegracaoTestBase {
 		mvc.perform(autenticado(get("/api/contas/{id}/extrato", ana.contaId()), ana.token()))
 			.andExpect(jsonPath("$.totalElements").value(2))
 			.andExpect(jsonPath("$.content[0].tipo").value("PIX"));
+		// Filtros do extrato: tipo, direção, status e busca por descrição ou nome da outra parte
+		mvc.perform(autenticado(get("/api/contas/{id}/extrato?tipo=DEPOSITO", ana.contaId()), ana.token()))
+			.andExpect(jsonPath("$.totalElements").value(1))
+			.andExpect(jsonPath("$.content[0].tipo").value("DEPOSITO"));
+		mvc.perform(autenticado(get("/api/contas/{id}/extrato?direcao=SAIDA", ana.contaId()), ana.token()))
+			.andExpect(jsonPath("$.totalElements").value(1))
+			.andExpect(jsonPath("$.content[0].direcao").value("SAIDA"));
+		mvc.perform(autenticado(get("/api/contas/{id}/extrato?direcao=ENTRADA&status=CONCLUIDA", bruno.contaId()),
+				bruno.token()))
+			.andExpect(jsonPath("$.totalElements").value(1));
+		mvc.perform(autenticado(get("/api/contas/{id}/extrato?busca=ALMO", ana.contaId()), ana.token()))
+			.andExpect(jsonPath("$.totalElements").value(1))
+			.andExpect(jsonPath("$.content[0].descricao").value("Almoço"));
+		mvc.perform(autenticado(get("/api/contas/{id}/extrato?busca=bruno", ana.contaId()), ana.token()))
+			.andExpect(jsonPath("$.totalElements").value(1));
+		mvc.perform(autenticado(get("/api/contas/{id}/extrato?status=RETIDA", ana.contaId()), ana.token()))
+			.andExpect(jsonPath("$.totalElements").value(0));
 
 		// A chave Pix do tipo CPF usa o CPF copiado do titular na abertura da conta
 		mvc.perform(json(post("/api/contas/{id}/chaves-pix", bruno.contaId()), bruno.token(), """
