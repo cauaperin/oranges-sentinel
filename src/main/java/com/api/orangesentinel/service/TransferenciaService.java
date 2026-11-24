@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -22,6 +23,7 @@ import com.api.orangesentinel.client.MotorDtos.Recebimento;
 import com.api.orangesentinel.dto.TransacaoDtos.MovimentacaoRequest;
 import com.api.orangesentinel.dto.TransacaoDtos.PixRequest;
 import com.api.orangesentinel.dto.TransacaoDtos.TransacaoResponse;
+import com.api.orangesentinel.dto.TransacaoDtos.Direcao;
 import com.api.orangesentinel.exception.ConflitoException;
 import com.api.orangesentinel.exception.RecursoNaoEncontradoException;
 import com.api.orangesentinel.exception.RegraNegocioException;
@@ -152,11 +154,21 @@ public class TransferenciaService {
 	}
 
 	@Transactional(readOnly = true)
-	public Page<TransacaoResponse> extrato(Long contaId, Long usuarioId, Instant de, Instant ate, Pageable pageable) {
+	public Page<TransacaoResponse> extrato(Long contaId, Long usuarioId, FiltroExtrato filtro, Pageable pageable) {
 		Conta conta = contaRepository.findById(contaId)
 			.orElseThrow(() -> new RecursoNaoEncontradoException("Conta", contaId));
 		ContaService.verificarTitular(conta, usuarioId);
-		return repository.extrato(contaId, de, ate, pageable).map(t -> TransacaoResponse.of(t, contaId));
+		String busca = filtro.busca() == null || filtro.busca().isBlank() ? ""
+				: "%" + filtro.busca().trim().toLowerCase(Locale.ROOT) + "%";
+		String direcao = filtro.direcao() == null ? "" : filtro.direcao().name();
+		return repository
+			.extrato(contaId, filtro.de(), filtro.ate(), filtro.tipo(), filtro.status(), direcao, busca, pageable)
+			.map(t -> TransacaoResponse.of(t, contaId));
+	}
+
+	/** Filtros do extrato: período obrigatório; os demais são opcionais (null não filtra). */
+	public record FiltroExtrato(Instant de, Instant ate, TipoTransacao tipo, StatusTransacao status, Direcao direcao,
+			String busca) {
 	}
 
 	/** Fatos que o banco possui e o motor precisa para decidir: status e risco das contas e recebimentos recentes. */

@@ -20,10 +20,14 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.api.orangesentinel.dto.PageResponse;
+import com.api.orangesentinel.dto.TransacaoDtos.Direcao;
 import com.api.orangesentinel.dto.TransacaoDtos.MovimentacaoRequest;
 import com.api.orangesentinel.dto.TransacaoDtos.TransacaoResponse;
 import com.api.orangesentinel.security.UsuarioLogado;
+import com.api.orangesentinel.model.enums.StatusTransacao;
+import com.api.orangesentinel.model.enums.TipoTransacao;
 import com.api.orangesentinel.service.TransferenciaService;
+import com.api.orangesentinel.service.TransferenciaService.FiltroExtrato;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -58,10 +62,13 @@ public class MovimentacaoController {
 	public PageResponse<TransacaoResponse> extrato(@AuthenticationPrincipal Jwt jwt, @PathVariable Long contaId,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant de,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant ate,
+			@RequestParam(required = false) TipoTransacao tipo, @RequestParam(required = false) StatusTransacao status,
+			@RequestParam(required = false) Direcao direcao, @RequestParam(required = false) String busca,
 			@PageableDefault(size = 20, sort = "criadaEm", direction = Sort.Direction.DESC) Pageable pageable) {
 		Instant fim = ate != null ? ate : Instant.now().plusSeconds(1);
 		Instant inicio = de != null ? de : fim.minus(30, ChronoUnit.DAYS);
-		return PageResponse.of(service.extrato(contaId, UsuarioLogado.id(jwt), inicio, fim, pageable));
+		return PageResponse.of(service.extrato(contaId, UsuarioLogado.id(jwt),
+				new FiltroExtrato(inicio, fim, tipo, status, direcao, busca), pageable));
 	}
 
 }

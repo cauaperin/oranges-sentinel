@@ -15,6 +15,7 @@ import com.api.orangesentinel.dto.ArestaPix;
 import com.api.orangesentinel.dto.SaqueRegistrado;
 import com.api.orangesentinel.model.Transacao;
 import com.api.orangesentinel.model.enums.StatusTransacao;
+import com.api.orangesentinel.model.enums.TipoTransacao;
 import com.api.orangesentinel.dto.ArestaPix;
 import com.api.orangesentinel.dto.SaqueRegistrado;
 
@@ -22,19 +23,39 @@ public interface TransacaoRepository extends JpaRepository<Transacao, Long> {
 
 	Optional<Transacao> findByIdempotencyKey(String idempotencyKey);
 
+	/**
+	 * Extrato da conta no período, com filtros opcionais: {@code tipo}/{@code status} nulos e {@code direcao}/
+	 * {@code busca} vazios não filtram. A direção segue a regra da resposta: ENTRADA quando a conta é o destino.
+	 * {@code busca} já chega em minúsculas e entre "%" (procura na descrição e no nome da outra parte).
+	 */
 	@Query(value = """
 			select t from Transacao t
 			left join fetch t.contaOrigem o
 			left join fetch t.contaDestino d
 			where (o.id = :contaId or d.id = :contaId)
 			  and t.criadaEm >= :de and t.criadaEm < :ate
+			  and (:tipo is null or t.tipo = :tipo)
+			  and (:status is null or t.status = :status)
+			  and (:direcao = '' or (:direcao = 'ENTRADA' and d.id = :contaId)
+			       or (:direcao = 'SAIDA' and (d.id is null or d.id <> :contaId)))
+			  and (:busca = '' or lower(coalesce(t.descricao, '')) like :busca
+			       or lower(coalesce(o.titularNome, '')) like :busca or lower(coalesce(d.titularNome, '')) like :busca)
 			""", countQuery = """
 			select count(t) from Transacao t
-			where (t.contaOrigem.id = :contaId or t.contaDestino.id = :contaId)
+			left join t.contaOrigem o
+			left join t.contaDestino d
+			where (o.id = :contaId or d.id = :contaId)
 			  and t.criadaEm >= :de and t.criadaEm < :ate
+			  and (:tipo is null or t.tipo = :tipo)
+			  and (:status is null or t.status = :status)
+			  and (:direcao = '' or (:direcao = 'ENTRADA' and d.id = :contaId)
+			       or (:direcao = 'SAIDA' and (d.id is null or d.id <> :contaId)))
+			  and (:busca = '' or lower(coalesce(t.descricao, '')) like :busca
+			       or lower(coalesce(o.titularNome, '')) like :busca or lower(coalesce(d.titularNome, '')) like :busca)
 			""")
 	Page<Transacao> extrato(@Param("contaId") Long contaId, @Param("de") Instant de, @Param("ate") Instant ate,
-			Pageable pageable);
+			@Param("tipo") TipoTransacao tipo, @Param("status") StatusTransacao status,
+			@Param("direcao") String direcao, @Param("busca") String busca, Pageable pageable);
 
 	/** Arestas do grafo: Pix concluídos dentro da janela de análise. */
 	@Query("""
